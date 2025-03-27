@@ -2,7 +2,9 @@
 Python script to filter .dat files using /v/'s Recommended Games Wiki
 
 =========================================
+
 VREC DAT Game Filter Script - User Manual
+
 =========================================
 
 == 1. Purpose ==
