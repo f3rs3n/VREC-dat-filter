@@ -149,3 +149,9 @@ While running, the script will display:
 - Warnings in yellow and Errors in red (printed to stderr).
 - A progress bar (`tqdm`) during the main filtering stage.
 - A final summary report with colored results and aligned numbers, showing counts for total games, web titles, matches found, non-matches, etc., and the matching algorithm used (`token_set_ratio`).
+
+== 10. Origin and Acknowledgements ==
+
+The initial idea for filtering DAT files based on the V.Rec wiki recommendations was inspired by rishooty's vrec-dat-filter script (https://github.com/rishooty/vrec-dat-filter).
+
+However, this particular Python script is a complete rewrite from scratch. It was developed collaboratively with the assistance of Google Gemini (using an experimental version available around March 2025), as I did not have the necessary programming expertise to implement the desired features and iterative refinements independently.
