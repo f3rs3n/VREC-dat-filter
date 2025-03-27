@@ -61,9 +61,7 @@ Before running the script, you need:
 
 1.  Save the Script: Save the complete Python script code provided to you in a file named `filter_script.py` (or any name ending in `.py`).
 
-2.  Create `requirements.txt`: In the SAME directory where you saved `filter_script.py`, create a new, plain text file named exactly `requirements.txt`.
-
-3.  Populate `requirements.txt`: Open `requirements.txt` with a text editor (like Notepad) and paste the following lines into it:
+2.  Create `requirements.txt`: In the SAME directory where you saved `filter_script.py`, create a new, plain text file named exactly `requirements.txt`. Paste the following lines into this file:
 
     requests
     beautifulsoup4
@@ -72,13 +70,11 @@ Before running the script, you need:
     colorama
     tqdm
 
-4.  Save `requirements.txt`.
-
-5.  Install Dependencies: Open your terminal (Cmd or PowerShell), navigate to the directory containing the script and `requirements.txt` (using the `cd` command), and run:
+3.  Install Dependencies: Open your terminal (Cmd or PowerShell), navigate to the directory containing the script and `requirements.txt` (using the `cd` command), and run:
 
     pip install -r requirements.txt
 
-    This command will read the file and install all the necessary libraries. You only need to do this once for your Python environment.
+    This command will read the file and install all the necessary libraries. You only need to do this once for your Python environment (or each time you create a new virtual environment).
 
 == 5. How to Run the Script ==
 
