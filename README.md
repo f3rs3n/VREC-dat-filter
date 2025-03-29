@@ -12,13 +12,14 @@ VREC DAT Game Filter Script - User Manual
 This Python script filters a game list file in DAT/XML format (like those used by ROM managers based on the Logiqx DTD, e.g., from redump.org) based on recommended game titles scraped from one or more specified web pages (e.g., wiki lists).
 
 It works by:
-1. Fetching the recommended game titles from the provided URL(s).
-2. Parsing your input DAT file to get the game names.
-3. Cleaning both the web titles and the DAT titles (removing common tags like (USA), [Europe], etc.).
-4. Comparing the cleaned DAT titles against the cleaned web titles using fuzzy matching (specifically, the 'token_set_ratio' algorithm, which is good at handling extra words/subtitles) with a configurable similarity threshold.
-5. Generating a new, filtered DAT file containing only the games that matched the web list criteria.
-6. Generating separate CSV files for each source URL, listing any recommended titles from that specific URL that were *not* found with sufficient similarity in your DAT file.
-7. Displaying colored status messages, a progress bar, and a final summary report in the terminal.
+1. Taking the base URL(s) you provide and automatically checking for corresponding `/Homebrew` and `/Japan` pages.
+2. Fetching the recommended game titles from all existing/valid URLs found.
+3. Parsing your input DAT file to get the game names.
+4. Cleaning both the web titles and the DAT titles (removing common tags like (USA), [Europe], etc.).
+5. Comparing the cleaned DAT titles against the cleaned web titles using fuzzy matching (specifically, the 'token_set_ratio' algorithm, which is good at handling extra words/subtitles) with a configurable similarity threshold.
+6. Generating a new, filtered DAT file containing only the games that matched the web list criteria.
+7. Generating separate CSV files for each source URL successfully processed, listing any recommended titles from that specific URL that were *not* found with sufficient similarity in your DAT file.
+8. Displaying colored status messages, a progress bar, and a final summary report in the terminal.
 
 == 2. Input File Recommendations (1G1R DATs) ==
 
@@ -87,7 +88,7 @@ Before running the script, you need:
 
     - Replace `<INPUT_FILE>` with the path to your .dat file (preferably a 1G1R DAT, see Section 2). Can also be .xml/.txt containing XML.
     - `[OUTPUT_FILE]` is optional (see Arguments below).
-    - Replace `<URL1> [URL2...]` with the web page URL(s) containing the recommended titles.
+    - Replace `<URL1> [URL2...]` with the *base* web page URL(s) containing the recommended titles (the script will auto-check for `/Homebrew` and `/Japan` variants).
     - `[OPTIONS]` are other optional flags like `--threshold`.
     - IMPORTANT: If any file path or URL contains spaces, enclose it in double quotes (`"`).
 
@@ -105,11 +106,12 @@ Before running the script, you need:
     - Example: `"Filtered PSX Games.dat"`
 
 * `--urls <URL1> [URL2...]` or `-u <URL1> [URL2...]` (Required)
-    - Must be followed by one or more web page URLs, separated by spaces.
-    - These URLs point to the pages containing the lists of recommended game titles.
-    - Example: `--urls "https://site.com/list1" "https://othersite.org/page2"`
+    - Must be followed by one or more *base* web page URLs, separated by spaces.
+    - These URLs point to the main pages containing the lists of recommended game titles.
+    - Example: `--urls "https://wiki.example.com/wiki/PlayStation"`
 
-    NOTE ON URLs: The source wikis for recommended games (like the V.Rec wiki referenced during development) have sometimes changed their domain names over the years. This script intentionally does *not* hardcode specific URLs. You *must* provide the current, correct URL(s) using this `--urls` argument each time you run it. As long as the general path structure on the wiki remains similar (e.g., `xxx.xxx.org/wiki/PlayStation`, `xxx.xxx.org/wiki/NES`, `xxx.xxx.org/wiki/PlayStation/Japan`), the script should continue to function correctly even if the domain (`xxx.xxx.org`) changes, provided you supply the updated URL.
+    NOTE ON URLs & AUTO-EXPANSION: The source wikis for recommended games (like the V.Rec wiki referenced during development) have sometimes changed their domain names over the years. This script intentionally does *not* hardcode specific URLs. You *must* provide the current, correct *base* URL(s) using this argument.
+    For each base URL provided (e.g., `.../wiki/SystemName`), the script will *automatically* also check for corresponding `/Homebrew` and `/Japan` pages (e.g., `.../wiki/SystemName/Homebrew` and `.../wiki/SystemName/Japan`). If these derived URLs exist and contain relevant tables, their titles will also be included in the filtering process. If they don't exist (404 Not Found), they will be silently ignored (you might see a dim info message). The script should continue to function correctly even if the main domain changes, provided you supply the updated base URL(s).
 
 * `--threshold <0-100>` or `-t <0-100>` (Optional)
     - Sets the minimum similarity percentage (0-100) required for a match between a DAT title and a web title.
@@ -120,35 +122,36 @@ Before running the script, you need:
 
 == 7. Examples ==
 
-* Basic usage with a 1G1R DAT (output DAT/CSVs named automatically, 90% threshold):
-    python filter_script.py "Sony - PlayStation (1G1R).dat" --urls "https://wiki.example.com/PSX_Recommended"
+* Basic usage with a 1G1R DAT (Checks .../PSX_Recommended, .../Homebrew, .../Japan automatically):
+    python filter_script.py "Sony - PlayStation (1G1R).dat" --urls "https://wiki.example.com/wiki/PSX_Recommended"
 
-* Specifying output DAT name, multiple URLs, 85% threshold:
-    python filter_script.py "input/psx_1g1r.dat" "output/psx_filtered_vrec.dat" --urls "https://url1.com" "https://url2.net" -t 85
+* Specifying output DAT name, multiple systems (will check variants for both), 85% threshold:
+    python filter_script.py "input/all_systems_1g1r.dat" "output/all_filtered.dat" --urls "https://wiki.example.com/wiki/PlayStation" "https://wiki.example.com/wiki/NES" -t 85
 
 * Using short flags:
-    python filter_script.py game_list_1g1r.dat -u "https://wiki.example.com/best_games"
+    python filter_script.py game_list_1g1r.dat -u "https://wiki.example.com/wiki/SNES"
 
 == 8. Output Files ==
 
 1.  Filtered DAT File:
     - Named either as specified by `[OUTPUT_FILE]` or `<input_filename>_filtered.dat`.
     - Created in the location specified or in the input file's directory.
-    - Contains the original header and only the `<game>` entries from the input DAT that had a name matching (with >= threshold similarity using `token_set_ratio`) at least one title found on the specified web pages.
+    - Contains the original header and only the `<game>` entries from the input DAT that had a name matching (with >= threshold similarity using `token_set_ratio`) at least one title found on the specified web pages (including titles from `/Homebrew` and `/Japan` variants if found).
 
 2.  Unmatched Titles CSV File(s):
-    - One CSV file may be created for *each URL* provided *if* that URL contained recommended titles that did *not* find a match in your DAT file.
+    - One CSV file may be created for *each URL successfully processed* (including automatically checked `/Homebrew` and `/Japan` variants) *if* that URL contained recommended titles that did *not* find a match in your DAT file.
     - Location: Saved in the same directory as the filtered DAT file.
-    - Naming: `<url_path_part>_unmatched.csv` (e.g., `PlayStation_unmatched.csv`, `PlayStation_Japan_unmatched.csv`). The name is derived from the last part of the URL path, sanitized to be filename-safe.
+    - **Naming:** `<SystemName>_<Variant>_unmatched.csv` (e.g., `PlayStation_unmatched.csv`, `PlayStation_Homebrew_unmatched.csv`, `PlayStation_Japan_unmatched.csv`). The name is derived from the relevant parts of the URL path (after '/wiki/'), joined by underscores, and sanitized.
     - Content: A single column listing the recommended titles from that *specific URL* that were *not* found in your DAT file according to the matching criteria. This helps identify potential missing games or naming discrepancies for each source list.
 
 == 9. Console Output ==
 
 While running, the script will display:
 - Status messages (fetching, parsing, filtering, writing) usually in cyan.
-- Warnings in yellow and Errors in red (printed to stderr).
-- A progress bar (`tqdm`) during the main filtering stage.
-- A final summary report with colored results and aligned numbers, showing counts for total games, web titles, matches found, non-matches, etc., and the matching algorithm used (`token_set_ratio`).
+- Information about the URLs being checked (including the auto-expanded ones).
+- Warnings in yellow and Errors in red (printed to stderr). 404 errors for non-existent auto-checked URLs are ignored or shown as dim info messages.
+- A progress bar (`tqdm`) during the web fetching stage and the main filtering stage.
+- A final summary report with colored results and aligned numbers, showing counts for total games, web titles found per URL, total unique web titles, matches found, non-matches, etc., and the matching algorithm used (`token_set_ratio`).
 
 == 10. Origin and Acknowledgements ==
 
