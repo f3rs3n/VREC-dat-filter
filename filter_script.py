@@ -10,10 +10,16 @@ import argparse
 import csv
 import traceback
 import urllib.parse
+import datetime # Imported for current date
 # Import colorama
 from colorama import Fore, Style, init
 # Import tqdm for progress bar
 from tqdm import tqdm
+
+# --- Script Info ---
+SCRIPT_VERSION = "1.1.0" # Script version
+SCRIPT_AUTHOR = "f3rs3n, Gemini" # Authors
+SCRIPT_HOMEPAGE = "https://github.com/f3rs3n/VREC-dat-filter" # Project homepage
 
 # --- Define color constants ---
 C_INFO = Fore.CYAN
@@ -57,23 +63,24 @@ def fetch_single_url_titles(url):
     print(f"{C_INFO}Processing successful fetch from: {url}")
     try:
         soup = BeautifulSoup(response.content, 'lxml')
-        titles = set()
-        tables = soup.find_all('table', class_='wikitable')
+        titles = set() # Set to store unique titles found
+        tables = soup.find_all('table', class_='wikitable') # Find relevant tables
+
         if not tables:
             print(f"{C_WARNING}Warning: No 'wikitable' table found on {url}.", file=sys.stderr)
         else:
              table_index = 0
-             for table in tables:
+             for table in tables: # Iterate through found tables
                 table_index += 1
-                rows = table.find_all('tr')
-                for row in rows[1:]: # Skip main table header row
+                rows = table.find_all('tr') # Find all rows
+                for row in rows[1:]: # Iterate from second row (skip header)
                     try:
-                        # Find both data and header cells within the row
+                        # Find both data (td) and header (th) cells within the row
                         cells = row.find_all(['td', 'th'])
-                        # Title is in the second cell (index 1)
+                        # Title is expected in the second cell (index 1)
                         if len(cells) > 1:
-                            title_text = cells[1].get_text(strip=True)
-                            # Clean potential region tags like [USA] etc. from web source
+                            title_text = cells[1].get_text(strip=True) # Raw text
+                            # Clean common region tags like [USA] etc.
                             cleaned_title_block = re.sub(r'\[.*?\]', '', title_text).strip()
                             # Handle potential alternate titles separated by <br/> (newline)
                             title_lines = [line.strip() for line in cleaned_title_block.split('\n') if line.strip()]
@@ -84,13 +91,14 @@ def fetch_single_url_titles(url):
                     except Exception as row_error:
                         # Log error parsing a specific row but continue
                         print(f"{C_ERROR}ERROR parsing a row in URL {url}: {row_error}", file=sys.stderr)
-        print(f"Found {C_SUCCESS}{len(titles)}{C_NORMAL} unique titles on {url}.")
+        print(f"Found {C_SUCCESS}{len(titles)}{C_NORMAL} unique titles on {url}.") # Final count for this URL
         return titles # Return the set (might be empty)
     except Exception as e:
         # Handle errors during HTML parsing phase
         print(f"{C_ERROR}Warning: Error during HTML parsing of URL {url}: {e}", file=sys.stderr)
         traceback.print_exc()
         return None # Indicate failure
+
 
 def fetch_all_titles(url_list):
     """Downloads and combines titles from a list of URLs, tracking source."""
@@ -110,10 +118,10 @@ def fetch_all_titles(url_list):
         titles_from_url = fetch_single_url_titles(url) # Fetch and parse
         processed_urls.add(url)
 
-        # Only process if fetch didn't have critical error (returned None)
-        if titles_from_url is not None: # Empty set is okay (page exists, no titles found)
+        # Only process if fetch didn't return a critical error (None)
+        if titles_from_url is not None: # An empty set is okay
              titles_by_url[url] = titles_from_url
-             if titles_from_url: # Update combined set only if titles were found
+             if titles_from_url: # Update combined set only if titles were actually found
                  all_recommended_titles.update(titles_from_url)
 
     print() # Newline after progress bar
@@ -124,36 +132,85 @@ def fetch_all_titles(url_list):
         print(f"\n{C_SUCCESS}Total: Found {len(all_recommended_titles)} unique recommended titles from all accessible URLs.")
         return all_recommended_titles, titles_by_url
 
+
 def filter_dat_file(input_dat_path, output_dat_path, all_recommended_titles, titles_by_url, similarity_threshold):
-    """Filters the DAT file, generates report, and writes multiple CSV files (one per URL)."""
+    """Filters the DAT file, generates report, updates header, and writes multiple CSV files."""
     # Initial checks
     if not os.path.exists(input_dat_path):
         print(f"{C_ERROR}Error: Input file '{input_dat_path}' does not exist.", file=sys.stderr); return False
     if all_recommended_titles is None: # Critical fetch error occurred
          print(f"{C_ERROR}Error: Cannot proceed, error fetching recommended titles.", file=sys.stderr); return False
     if not all_recommended_titles: # No web titles found, but no critical error
-        print(f"\n{C_WARNING}Warning: No valid web titles found for comparison, output DAT file will be empty.")
+        print(f"\n{C_WARNING}Warning: No valid web titles found for comparison, output DAT file will be empty (header only).")
 
     # Read and Parse DAT
     print(f"\n{C_INFO}Reading and parsing DAT file: {input_dat_path}")
     try:
-        original_header_lines = []
+        # Read XML declaration, DOCTYPE etc. lines before <datafile>
+        original_initial_lines = []
         with open(input_dat_path, 'r', encoding='utf-8') as f:
             for line in f:
-                stripped_line = line.strip();
-                if stripped_line.startswith('<datafile>'): break
-                original_header_lines.append(line)
-            if stripped_line.startswith('<datafile>'): original_header_lines.append(line)
+                if line.strip().startswith('<datafile>'): break
+                original_initial_lines.append(line)
+        # Parse the full XML
         tree = ET.parse(input_dat_path); root = tree.getroot()
     except Exception as e:
         print(f"{C_ERROR}Unexpected error during DAT file reading/parsing: {e}", file=sys.stderr); traceback.print_exc(); return False
 
-    # Initialize results
-    filtered_games_elements = {} # Use dict {original_dat_name: game_element} to handle duplicates
-    matched_recommended_titles = set() # Set of web titles that got at least one match
-
-    print(f"{C_INFO}Filtering games (Threshold: {similarity_threshold}%, Algorithm: token_set_ratio)...")
+    # --- HEADER PROCESSING AND UPDATING ---
+    print(f"{C_INFO}Processing and updating header information...")
     original_header_element = root.find('header')
+    new_header = ET.Element('header') # Create the new header element
+    today_date = datetime.date.today().strftime('%Y-%m-%d') # Get current date YYYY-MM-DD
+
+    # Default values if original header is missing or incomplete
+    original_name_text = "Unknown System"
+    original_description_text = "Unknown DAT"
+    elements_to_copy = [] # List to store elements to copy directly (dict format)
+
+    if original_header_element is not None:
+        # Extract original values if present
+        name_el = original_header_element.find('name')
+        if name_el is not None and name_el.text:
+            original_name_text = name_el.text.strip()
+
+        desc_el = original_header_element.find('description')
+        if desc_el is not None and desc_el.text:
+            original_description_text = desc_el.text.strip()
+
+        # Identify elements to copy as-is
+        tags_to_copy = ['url', 'retool', 'clrmamepro', 'comment'] # Add others if needed
+        for child in original_header_element:
+            if child.tag in tags_to_copy:
+                # Store tag name, text content, and attributes
+                elements_to_copy.append({'tag': child.tag, 'text': child.text, 'attrib': child.attrib})
+    else:
+        print(f"{C_WARNING}Warning: No <header> element found in input DAT.")
+
+    # Construct the new header content
+    # Name: Remove last parenthesized tag (like (Retool)) and add script tag
+    processed_name = re.sub(r'\s*\([^)]*\)$', '', original_name_text).strip()
+    ET.SubElement(new_header, 'name').text = f"{processed_name} (VREC DAT Filter)"
+
+    # Description: Append script tag
+    ET.SubElement(new_header, 'description').text = f"{original_description_text} (VREC DAT Filter)"
+
+    # Version, Date, Author, Homepage: Set new values from constants/calculation
+    ET.SubElement(new_header, 'version').text = SCRIPT_VERSION
+    ET.SubElement(new_header, 'date').text = today_date
+    ET.SubElement(new_header, 'author').text = SCRIPT_AUTHOR
+    ET.SubElement(new_header, 'homepage').text = SCRIPT_HOMEPAGE
+
+    # Recreate the copied elements
+    for element_data in elements_to_copy:
+        ET.SubElement(new_header, element_data['tag'], attrib=element_data['attrib']).text = element_data['text']
+    # --- END HEADER PROCESSING ---
+
+
+    # --- Game Filtering ---
+    filtered_games_elements = {} # Use dict {original_dat_name: game_element}
+    matched_recommended_titles = set() # Set of web titles that got at least one match
+    print(f"{C_INFO}Filtering games (Threshold: {similarity_threshold}%, Algorithm: token_set_ratio)...")
     all_game_elements = root.findall('game')
     original_game_count = len(all_game_elements)
 
@@ -165,111 +222,98 @@ def filter_dat_file(input_dat_path, output_dat_path, all_recommended_titles, tit
                              bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]'
                             ):
         dat_title_original = game_element.get('name')
-        if not dat_title_original: continue # Skip game if no name attribute
+        if not dat_title_original: continue
 
-        # Clean DAT title (remove (...) and [...] tags)
+        # Clean DAT title
         cleaned_dat_title = re.sub(r'\s*\([^)]*\)', '', dat_title_original)
         cleaned_dat_title = re.sub(r'\s*\[[^]]*\]', '', cleaned_dat_title)
         cleaned_dat_title = cleaned_dat_title.strip()
 
-        # Compare cleaned DAT title against all unique web titles if available
+        # Compare against web titles
         if all_recommended_titles and cleaned_dat_title:
             for recommended_title in all_recommended_titles:
-                # Use token_set_ratio (good for subset matching like Title vs Title+Subtitle)
+                # Use token_set_ratio
                 similarity = fuzz.token_set_ratio(cleaned_dat_title, recommended_title)
                 if similarity >= similarity_threshold:
-                    # If matched, store the *original* game element using original name as key
                     if dat_title_original not in filtered_games_elements:
                          filtered_games_elements[dat_title_original] = game_element
-                    # Add the web title that caused the match to the set of matched web titles
                     matched_recommended_titles.add(recommended_title)
-                    # NOTE: No 'break' here - allows multiple web titles to match the same DAT game
-                    # and ensures all matched web titles are correctly recorded
+                    # No break here
 
     print() # Newline after progress bar
     print(f"{C_SUCCESS}Filtering complete.")
 
     # --- Write Filtered DAT File ---
-    filtered_games = list(filtered_games_elements.values()) # Get the unique game elements
-    new_root = ET.Element('datafile')
-    if original_header_element is not None: new_root.append(original_header_element)
-    for game in filtered_games: new_root.append(game) # Add filtered games
-    new_tree = ET.ElementTree(new_root)
+    filtered_games = list(filtered_games_elements.values())
+    new_root = ET.Element('datafile') # Create new <datafile> root
+    new_root.append(new_header) # Append the MODIFIED header element
+    for game in filtered_games: new_root.append(game) # Append filtered game elements
+    new_tree = ET.ElementTree(new_root) # Create the tree from the new root
+
     print(f"{C_INFO}Writing filtered DAT file to: {output_dat_path}")
     try:
-        ET.indent(new_tree, space="\t", level=0) # Pretty print XML
+        ET.indent(new_tree, space="\t", level=0) # Indent for readability
         with open(output_dat_path, 'wb') as f:
-             # Write original header lines (DOCTYPE etc.)
-             for line in original_header_lines:
-                 if not line.strip().startswith('<datafile>'): f.write(line.encode('utf-8'))
-             # Write the main XML tree
+             # Write ONLY the initial lines (e.g., <?xml...>, <!DOCTYPE...>) from original file
+             for line in original_initial_lines:
+                 f.write(line.encode('utf-8'))
+             # Write the entire new XML tree (starts with <datafile>)
              new_tree.write(f, encoding='utf-8', xml_declaration=False)
     except IOError as e:
         print(f"{C_ERROR}Error writing filtered DAT file: {e}", file=sys.stderr)
 
+
     # --- Write Multiple CSV Files ---
     csv_files_created = []
-    output_dir = os.path.dirname(output_dat_path) # Save CSVs in the same dir as the output DAT
-    url_counter = 0 # Fallback counter for naming
+    output_dir = os.path.dirname(output_dat_path)
+    url_counter = 0
     print() # Blank line before CSV messages
 
     if titles_by_url: # Check if the dictionary has entries
         for url, titles_from_this_url in titles_by_url.items():
-            # Skip URLs that had fetch errors (titles_from_this_url is None)
-            if titles_from_this_url is None: continue
+            if titles_from_this_url is None: continue # Skip URLs with fetch errors
 
             url_counter += 1
-            # Find titles from *this* specific URL that are not in the globally matched set
+            # Find titles for *this* URL that are not in the globally matched set
             unmatched_for_this_url = titles_from_this_url - matched_recommended_titles
 
-            if unmatched_for_this_url: # Only create CSV if there are unmatched titles for this URL
+            if unmatched_for_this_url: # Only create CSV if needed for this URL
                 try:
-                    # Generate filename based on URL path parts after '/wiki/'
+                    # Generate CSV filename
                     url_path = urllib.parse.urlparse(url).path
                     path_parts = [part for part in url_path.split('/') if part and part.lower() != 'wiki']
-                    if path_parts:
-                        base_name_url = '_'.join(path_parts) # e.g., PlayStation_Japan
-                    else: # Fallback name if path parsing fails
-                        base_name_url = f'url_{url_counter}'
-                    # Sanitize filename (allow alphanum, underscore, hyphen, dot)
+                    if path_parts: base_name_url = '_'.join(path_parts)
+                    else: base_name_url = f'url_{url_counter}'
                     sanitized_name = re.sub(r'[^\w.-]+', '_', base_name_url).strip('_')
-                    if not sanitized_name: sanitized_name = f"url_{url_counter}" # Final fallback
+                    if not sanitized_name: sanitized_name = f"url_{url_counter}"
                     csv_filename = f"{sanitized_name}_unmatched.csv"
                     full_csv_path = os.path.join(output_dir, csv_filename)
 
                     print(f"{C_INFO}Writing CSV for {url} -> {C_LABEL}{csv_filename}{C_NORMAL} ({len(unmatched_for_this_url)} titles)...")
-                    # Write the CSV file
+                    # Write the CSV
                     with open(full_csv_path, 'w', newline='', encoding='utf-8') as csvfile:
-                        writer = csv.writer(csvfile)
-                        writer.writerow([f'Unmatched Recommended Title from {url}']) # Header
-                        for title in sorted(list(unmatched_for_this_url)): # Write sorted titles
-                            writer.writerow([title])
-                    csv_files_created.append(csv_filename) # Track created files
+                        writer = csv.writer(csvfile); writer.writerow([f'Unmatched Recommended Title from {url}'])
+                        for title in sorted(list(unmatched_for_this_url)): writer.writerow([title])
+                    csv_files_created.append(csv_filename)
                 except Exception as e:
                     print(f"{C_ERROR}Error creating/writing CSV for {url}: {e}", file=sys.stderr)
 
     # --- Final CSV Summary Message ---
-    if not all_recommended_titles:
-        print(f"{C_WARNING}No valid web titles found initially, no CSV files created.")
+    if not all_recommended_titles: print(f"{C_WARNING}No valid web titles found initially, no CSV files created.")
     elif not csv_files_created:
-        # Check if this is because all titles actually matched
         all_titles_were_matched = True
         if titles_by_url:
             for url, titles_from_this_url in titles_by_url.items():
-                 if titles_from_this_url is not None and bool(titles_from_this_url - matched_recommended_titles):
-                     all_titles_were_matched = False; break
-        if all_titles_were_matched:
-            print(f"{C_SUCCESS}All valid web titles found had a match in the DAT, no CSV files created.")
-        else: # Should only happen if writing failed for all non-matched sets
-             print(f"{C_WARNING}Some web titles did not find a match, but an error occurred writing their CSV file(s).")
-    elif csv_files_created:
-         print(f"{C_SUCCESS}Created {len(csv_files_created)} CSV file(s) with unmatched titles.")
+                 if titles_from_this_url is not None and bool(titles_from_this_url - matched_recommended_titles): all_titles_were_matched = False; break
+        if all_titles_were_matched: print(f"{C_SUCCESS}All valid web titles found had a match in the DAT, no CSV files created.")
+        else: print(f"{C_WARNING}Some web titles did not find a match, but an error occurred writing their CSV file(s).")
+    elif csv_files_created: print(f"{C_SUCCESS}Created {len(csv_files_created)} CSV file(s) with unmatched titles.")
 
 
     # --- Final Report Section ---
-    total_matched_dat_games = len(filtered_games) # Use count of unique elements added
+    total_matched_dat_games = len(filtered_games)
     total_unmatched_dat_games = original_game_count - total_matched_dat_games
-    # Global unmatched count for report summary
+    # Global count for summary report
     global_unmatched_recommended_titles = all_recommended_titles - matched_recommended_titles if all_recommended_titles else set()
 
     print(f"\n{C_LABEL}--- Operation Summary ---{C_NORMAL}")
@@ -280,10 +324,8 @@ def filter_dat_file(input_dat_path, output_dat_path, all_recommended_titles, tit
 
     print(f"\n{C_LABEL}Recommended Titles (Web):{C_NORMAL}")
     if titles_by_url:
-        # Find max URL length for alignment
         max_url_len = max(len(url) for url in titles_by_url.keys()) if titles_by_url else 0
         for url, titles in titles_by_url.items():
-            # Display count or error status for each URL checked
             count_str = str(len(titles)) if titles is not None else f"{C_ERROR}Fetch Error{C_NORMAL}"
             color = C_SUCCESS if titles is not None and len(titles)>0 else C_WARNING if titles is not None else C_ERROR
             print(f"- URL: {url:<{max_url_len}} -> {color}{count_str}{C_NORMAL} titles found")
@@ -322,7 +364,7 @@ if __name__ == "__main__":
                         help="Path for the filtered DAT output file (optional). Default: '[input]_filtered.dat'.")
     # Optional Flag Arguments
     parser.add_argument("-u", "--urls", nargs='+', required=True,
-                        help="One or more base URLs of web pages with recommended titles.") # Updated help
+                        help="One or more base URLs of web pages with recommended titles.")
     parser.add_argument("-t", "--threshold", type=int, default=90, choices=range(0, 101), metavar="[0-100]",
                         help="Similarity percentage threshold (0-100). Default: 90.")
     parser.add_argument("--check-homebrew", "-hb", action='store_true',
@@ -338,35 +380,26 @@ if __name__ == "__main__":
         print(f"{C_ERROR}CRITICAL ERROR during argument parsing: {e}", file=sys.stderr)
         sys.exit(1)
 
-    # --- URL Expansion (Conditional) ---
+    # --- Conditional URL Expansion ---
     user_urls = args.urls
     expanded_urls = set(user_urls) # Start with user-provided URLs
-
     print() # Blank line
 
-    # Check if Homebrew flag is set
     if args.check_homebrew:
         print(f"{C_INFO}Checking for '/Homebrew' URL variants...")
-        homebrew_variants = set()
-        for base_url in user_urls:
-            homebrew_variants.add(base_url.rstrip('/') + "/Homebrew")
-        expanded_urls.update(homebrew_variants)
-
-    # Check if Japan flag is set
+        homebrew_variants = set(); [homebrew_variants.add(base_url.rstrip('/') + "/Homebrew") for base_url in user_urls]; expanded_urls.update(homebrew_variants)
     if args.check_japan:
         print(f"{C_INFO}Checking for '/Japan' URL variants...")
-        japan_variants = set()
-        for base_url in user_urls:
-            japan_variants.add(base_url.rstrip('/') + "/Japan")
-        expanded_urls.update(japan_variants)
+        japan_variants = set(); [japan_variants.add(base_url.rstrip('/') + "/Japan") for base_url in user_urls]; expanded_urls.update(japan_variants)
 
     # Final list of URLs to actually fetch
     final_urls_to_fetch = sorted(list(expanded_urls))
 
-    # Print info about final list only if different from original
+    # Print info about final list only if it was expanded
     if len(final_urls_to_fetch) > len(user_urls):
          print(f"{C_INFO}Final list includes expanded URLs ({len(final_urls_to_fetch)} total):")
-         for u in final_urls_to_fetch: print(f"{C_DIM}  - {u}")
+         # Commented out for less verbose output, uncomment if needed
+         # for u in final_urls_to_fetch: print(f"{C_DIM}  - {u}")
     else:
          print(f"{C_INFO}Processing only the provided URLs ({len(final_urls_to_fetch)} total).")
     # --- End URL Expansion ---
@@ -382,7 +415,7 @@ if __name__ == "__main__":
             output_dat_path = args.output_file
         else: # Default output DAT path
             output_dat_path = os.path.join(input_dir, f"{base_name}_filtered.dat")
-        # final_csv_path is determined inside filter_dat_file now
+        # final_csv_path is determined inside filter_dat_file
     except Exception as e:
         print(f"{C_ERROR}CRITICAL ERROR during path determination: {e}", file=sys.stderr); traceback.print_exc(); sys.exit(1)
 
