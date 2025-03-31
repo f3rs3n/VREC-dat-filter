@@ -1,6 +1,6 @@
 # VREC DAT Filter Script
 
-**Version:** 1.3.2 (as of 2025-03-30)
+**Version:** 1.4.2 (as of 2025-04-01)
 
 ## 1. Purpose
 
@@ -14,17 +14,19 @@ It works by:
 3.  Fetching the recommended game titles from all existing/valid URLs found (targeting `wikitable` structure).
 4.  Parsing your input DAT file (validating it has a `<datafile>` root element).
 5.  Cleaning both the web titles and the DAT titles (removing common tags like `(USA)`, `[Europe]`, parentheses content, most punctuation).
-6.  Comparing the cleaned DAT titles against the cleaned web titles using fuzzy matching (specifically, the `'token_set_ratio'` algorithm from `thefuzz` library) with a configurable similarity threshold (`--threshold`).
-7.  Generating a new, filtered DAT file containing only the games that matched the web list criteria, updating the DAT header information in the process.
-8.  Generating separate CSV files for each source URL successfully processed, listing any recommended titles from that specific URL that were *not* found with sufficient similarity in your DAT file.
-9.  Displaying status messages using standard Python `logging`. Console output is colored (via `coloredlogs`) and formatted without timestamps by default (`LEVEL: Message`). An optional log file captures detailed DEBUG-level logs with timestamps. Progress bars (`tqdm`) are shown during lengthy operations.
+6.  Finding all potential matches where a cleaned DAT title has a similarity score >= `--threshold` compared to a cleaned web title, using the `fuzz.WRatio` algorithm.
+7.  For each web title, selecting the single **best** matching DAT game (highest score) from the potential matches found in the previous step.
+8.  Adding special handling to keep all discs (`(Disc 1)`, `(Disc 2)`, etc.) if the best match selected was `(Disc 1)` and other discs of the *exact same base name* were also potential matches.
+9.  Generating a new, filtered DAT file containing only the selected best-matching games (and their associated discs), updating the DAT header information in the process.
+10. Generating separate CSV files for each source URL successfully processed, listing any recommended titles from that specific URL that did *not* result in a game being kept in the final DAT.
+11. Displaying status messages using standard Python `logging`. Console output is colored (via `coloredlogs`) and formatted without timestamps by default (`LEVEL: Message`). An optional log file captures detailed DEBUG-level logs with timestamps. Progress bars (`tqdm`) are shown during lengthy operations.
 
 ## 2. Input File Recommendations (1G1R DATs)
 
 For the best results with this script, it is **highly recommended** to use a **"1 Game 1 ROM" (1G1R)** style DAT file as your input.
 
 ### What are 1G1R DATs?
-Standard DAT files from sources like Redump or No-Intro often list multiple versions of the same game (regions, revisions, etc.). A 1G1R DAT file aims to include only one "best" or preferred version of each unique game, usually prioritizing your preferred region(s) and the latest official revision, removing most duplicates.
+Standard DAT files from sources like Redump or No-Intro often list multiple versions of the same game. A 1G1R DAT file aims to include only one "best" or preferred version of each unique game, usually prioritizing your preferred region(s) and the latest official revision, removing most duplicates.
 
 ### Why use 1G1R with this script?
 -   **Fewer Duplicates:** Reduces the chance of multiple entries in your DAT file matching the same recommended title.
@@ -32,7 +34,7 @@ Standard DAT files from sources like Redump or No-Intro often list multiple vers
 -   **Better Matching Focus:** Improves the relevance of the matches found and reduces noise in the output DAT.
 
 ### How to get 1G1R DATs?
-You typically create 1G1R DAT files yourself using ROM manager tools like **RomVault**, **Romulus**, **Retool**, or **ClrMamePro** by filtering comprehensive DAT files (e.g., from Redump or No-Intro) based on your preferences (regions, languages, removing demos, etc.).
+You typically create 1G1R DAT files yourself using ROM manager tools like **RomVault**, **Romulus**, **Retool**, or **ClrMamePro** by filtering comprehensive DAT files (e.g., from Redump or No-Intro) based on your preferences.
 
 Using a 1G1R DAT as the `<input_file>` is likely to produce the most useful and manageable results.
 
@@ -92,7 +94,7 @@ Using a 1G1R DAT as the `<input_file>` is likely to produce the most useful and 
     * Example: `--urls "https://vsrecommendedgames.miraheze.org/wiki/PlayStation"`
 
 * `--threshold <0-100>` or `-t <0-100>` (Flag, Optional)
-    * Minimum similarity percentage (0-100) for a fuzzy match using `thefuzz.token_set_ratio`.
+    * Minimum similarity percentage (0-100) for a fuzzy match using `fuzz.WRatio`. Only DAT games meeting this threshold against a web title are considered potential candidates.
     * Default: `90`
     * Example: `-t 85`
 
@@ -105,7 +107,7 @@ Using a 1G1R DAT as the `<input_file>` is likely to produce the most useful and 
 * `--log-level <LEVEL>` (Flag, Optional)
     * Sets the minimum logging level displayed on the console.
     * Choices: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`.
-    * Default: `INFO` (Shows standard progress, warnings, errors). `DEBUG` shows much more detail, including individual match results.
+    * Default: `INFO` (Shows standard progress, warnings, errors). `DEBUG` shows much more detail.
 
 * `--log-file <FILEPATH>` (Flag, Optional)
     * Path to a file where detailed logs should be written.
@@ -117,19 +119,22 @@ Using a 1G1R DAT as the `<input_file>` is likely to produce the most useful and 
 
 ## 7. Matching Strategy and Accuracy
 
-This script uses the `thefuzz` library for fuzzy string matching, specifically the **`token_set_ratio`** algorithm.
+This script uses a two-stage process with the `fuzz.WRatio` algorithm:
 
-### Why `token_set_ratio`?
-It's generally effective at handling differences in word order and situations where one title might be a subset of another (ignoring extra words). This helps match DAT names (like `"Final Fantasy Anthology - Final Fantasy IV (USA)"`) against cleaner web names (like `"Final Fantasy Anthology"`), reducing the chances of *missing* desired games due to minor naming variations (false negatives).
+1.  **Finding Potential Matches:** It compares every cleaned DAT title against every cleaned web title. If the `WRatio` score is greater than or equal to the specified `--threshold`, the DAT game is considered a *potential* match for that web title.
+2.  **Selecting the Best Match:** For each web title, the script looks at all its potential DAT matches found in stage 1. It selects the DAT game with the **highest `WRatio` score** as the "best match" for that web title.
+3.  **Multi-Disc Handling:** If the selected best match is identified as "(Disc 1)", the script also checks the *other potential matches for the same web title*. If any of those other matches are also discs (Disc 2, Disc 3, etc.) of the *exact same base game name* (comparing names with disc info removed), they are *also* kept.
+4.  **Final Output:** Only the selected best matches (and their associated multi-discs) are included in the final filtered DAT file.
 
-### The Trade-off
-This flexibility might occasionally match related but distinct games that share core words (e.g., `"Metal Gear Solid - VR Missions (USA)"` might match `"Metal Gear Solid"`). This can lead to *false positives* (including potentially unwanted related games in the filtered list).
+### Why `WRatio`?
+It's a more sophisticated algorithm than simple ratio, attempting to handle different kinds of string variations using weighting and heuristics. However, as observed, it can sometimes produce unintuitive scores, especially giving high scores for partial matches involving common words or numbers.
 
-### Tuning
-Use the `--threshold` (`-t`) value (default 90) to balance this:
--   **Increase threshold** (e.g., `-t 95`): Requires a closer match, reducing false positives but potentially missing some valid variations.
--   **Decrease threshold** (e.g., `-t 85`): Allows for more variation, catching more potential matches but increasing the risk of false positives.
-Experimentation with the threshold might be needed depending on the source list and DAT file quality.
+### Threshold Importance
+The `--threshold` (`-t`) value (default 90) remains crucial. It determines the **minimum quality** required for a DAT game to even be considered a potential candidate in Stage 1.
+-   **Increase threshold** (e.g., `-t 95`): Stricter filtering in Stage 1. Fewer candidates reach Stage 2, reducing chances of a slightly wrong title being selected as "best" if the true match scores just below 95. Higher risk of missing valid matches if they score below the threshold.
+-   **Decrease threshold** (e.g., `-t 85`): Looser filtering in Stage 1. More candidates reach Stage 2. Increases the chance that the correct match (even if scoring lower, like 88) is included in the potential list, allowing Stage 2 to pick it if it's the highest scorer *in that list*. Also increases the risk that unrelated games pass the threshold and potentially get selected in Stage 2 if they happen to score highest for a given web title.
+
+Experimentation may be needed. Using a 1G1R DAT helps minimize ambiguity.
 
 ## 8. Examples
 
@@ -154,38 +159,38 @@ Experimentation with the threshold might be needed depending on the source list 
 
 1.  **Filtered DAT File:**
     * Named as specified by `output_file` or defaults to `<input_filename>_filtered.dat`.
-    * Contains `<game>` entries from the input DAT that matched a recommended title from the scraped URLs based on the fuzzy matching threshold.
+    * Contains `<game>` entries selected by the "best match" (and multi-disc) logic.
     * **Updated Header:** The `<header>` section is modified:
-        * `<name>`: Appends ` (VREC DAT Filter)` (after attempting to remove original final parentheses like `(Retool)`).
+        * `<name>`: Appends ` (VREC DAT Filter)`.
         * `<description>`: Appends ` (VREC DAT Filter)`.
-        * `<version>`: Set to the script's current version (e.g., `1.3.2`).
+        * `<version>`: Set to the script's current version (e.g., `1.4.2`).
         * `<date>`: Set to the date the script was run (YYYY-MM-DD).
         * `<author>`: Set to "f3rs3n, Gemini".
         * `<homepage>`: Set to the script's GitHub repository URL.
-        * Other relevant tags like `<url>`, `<retool>`, `<clrmamepro>`, `<comment>` are generally preserved from the original header if they existed.
+        * Other relevant tags are generally preserved.
 
 2.  **Unmatched Titles CSV File(s):**
-    * One CSV file *may* be created for *each unique URL processed* (including expanded `/Homebrew`, `/Japan` variants).
-    * A CSV is only created for a specific URL if titles were successfully scraped from it, *and* some of those titles did *not* find a match in the input DAT file.
+    * One CSV file *may* be created for *each unique URL processed*.
+    * A CSV is only created for a specific URL if titles were scraped from it, *and* some of those titles did *not* result in a game being kept in the final DAT via the best match logic.
     * **Location:** Same directory as the output DAT file.
-    * **Naming:** Derived from the URL path, sanitized for filesystem use, ending with `_unmatched.csv` (e.g., `PlayStation_unmatched.csv`, `PlayStation_Homebrew_unmatched.csv`, `Mega_Drive_Japan_unmatched.csv`).
-    * **Content:** A simple list of the cleaned recommended titles from that specific URL that were *not* found with sufficient similarity in the input DAT. Useful for investigating potential misses or DAT naming issues.
+    * **Naming:** Derived from the URL path, sanitized, ending with `_unmatched.csv` (e.g., `PlayStation_unmatched.csv`).
+    * **Content:** A simple list of the cleaned recommended titles from that specific URL for which no corresponding game was kept in the filtered DAT. Useful for investigating regional title differences (like Spyro 2) or other misses.
 
 3.  **Log File (Optional):**
     * Created only if the `--log-file <FILEPATH>` argument is used.
-    * Contains detailed logging information from the `DEBUG` level upwards, including timestamps, individual match results (if found), errors, and the final summary. Useful for debugging and record-keeping.
+    * Contains detailed logging information from the `DEBUG` level upwards, including timestamps, potential matches found, best match selections, errors, and the final summary.
 
 ## 10. Console Output
 
 * Uses Python's `logging` module.
 * Requires the `coloredlogs` library for colored output (otherwise output is monochrome).
 * Default log level is `INFO`, showing major steps, warnings, errors, and the final summary.
-* Use `--log-level DEBUG` for much more verbose output, including scraping details and individual match results.
-* Console messages (by default) are formatted as `LEVEL: Message` (e.g., `INFO: Filtering complete.`) without timestamps.
+* Use `--log-level DEBUG` for much more verbose output.
+* Console messages (by default) are formatted as `LEVEL: Message` without timestamps.
 * Progress bars (`tqdm`) are displayed during web scraping and DAT filtering phases.
 
 ## 11. Origin and Acknowledgements
 
 The initial idea for filtering DAT files based on the Vs. Recommended Games wiki recommendations was inspired by rishooty's vrec-dat-filter script ([https://github.com/rishooty/vrec-dat-filter](https://github.com/rishooty/vrec-dat-filter)).
 
-However, this particular Python script is a complete rewrite from scratch. It was developed collaboratively with the assistance of Google Gemini (using an experimental version available around March 2025), as the primary author did not have the necessary programming expertise to implement the desired features and iterative refinements independently.
+However, this particular Python script is a complete rewrite from scratch. It was developed collaboratively with the assistance of Google Gemini (using an experimental version available around March/April 2025), as the primary author did not have the necessary programming expertise to implement the desired features and iterative refinements independently.
