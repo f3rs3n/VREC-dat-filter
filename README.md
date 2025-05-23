@@ -51,7 +51,7 @@ Using a 1G1R DAT as the `<input_file>` is likely to produce the most useful resu
 
 ## 4. Setup
 
-1.  **Save the Script:** Save the Python script code to a file named `vrec_filter.py` (or your preferred `.py` filename).
+1.  **Save the Script:** Save the Python script code to a file named `filter_script.py` (or your preferred `.py` filename).
 2.  **Create `requirements.txt`:** In the SAME directory as the script, create a plain text file named exactly `requirements.txt`. Paste the following lines into this file:
     ```text
     requests
@@ -71,10 +71,10 @@ Using a 1G1R DAT as the `<input_file>` is likely to produce the most useful resu
 ## 5. How to Run
 
 1.  Open your terminal (Command Prompt, PowerShell, Windows Terminal, etc.).
-2.  Navigate (`cd`) to the directory containing `vrec_filter.py` and your input DAT file.
+2.  Navigate (`cd`) to the directory containing `filter_script.py` and your input DAT file.
 3.  Run the script using the command structure:
     ```bash
-    python vrec_filter.py <input_file> [output_file] --urls <URL1> [URL2...] [OPTIONS]
+    python filter_script.py <input_file> [output_file] --urls <URL1> [URL2...] [OPTIONS]
     ```
     * Remember to use quotes (`"..."`) around file paths or URLs that contain spaces.
 
@@ -149,23 +149,23 @@ This script uses a multi-stage process with fuzzy matching:
 
 * Basic usage (Automatic matching only):
     ```bash
-    python vrec_filter.py "Sony - PlayStation (1G1R).dat" -u "[https://vsrecommendedgames.miraheze.org/wiki/PlayStation](https://vsrecommendedgames.miraheze.org/wiki/PlayStation)"
+    python filter_script.py "Sony - PlayStation (1G1R).dat" -u "[https://vsrecommendedgames.miraheze.org/wiki/PlayStation](https://vsrecommendedgames.miraheze.org/wiki/PlayStation)"
     ```
 * Automatic matching + '/Japan' variant, specifying output file:
     ```bash
-    python vrec_filter.py "Sony - PlayStation (1G1R).dat" "My Filtered PSX.dat" -u "[https://vsrecommendedgames.miraheze.org/wiki/PlayStation](https://vsrecommendedgames.miraheze.org/wiki/PlayStation)" -j
+    python filter_script.py "Sony - PlayStation (1G1R).dat" "My Filtered PSX.dat" -u "[https://vsrecommendedgames.miraheze.org/wiki/PlayStation](https://vsrecommendedgames.miraheze.org/wiki/PlayStation)" -j
     ```
 * Automatic matching + '/Homebrew' + '/Japan' for SNES, 88% threshold, saving log:
     ```bash
-    python vrec_filter.py "input/snes_1g1r.dat" "output/snes_filtered.dat" -u "[https://vsrecommendedgames.miraheze.org/wiki/SNES](https://vsrecommendedgames.miraheze.org/wiki/SNES)" -hb -j -t 88 --log-file snes_filter.log
+    python filter_script.py "input/snes_1g1r.dat" "output/snes_filtered.dat" -u "[https://vsrecommendedgames.miraheze.org/wiki/SNES](https://vsrecommendedgames.miraheze.org/wiki/SNES)" -hb -j -t 88 --log-file snes_filter.log
     ```
 * Showing DEBUG output on console while filtering Mega Drive/Genesis:
     ```bash
-    python vrec_filter.py "input/genesis_1g1r.dat" -u "[https://vsrecommendedgames.miraheze.org/wiki/Mega_Drive](https://vsrecommendedgames.miraheze.org/wiki/Mega_Drive)" --log-level DEBUG
+    python filter_script.py "input/genesis_1g1r.dat" -u "[https://vsrecommendedgames.miraheze.org/wiki/Mega_Drive](https://vsrecommendedgames.miraheze.org/wiki/Mega_Drive)" --log-level DEBUG
     ```
 * Using **interactive review** for unmatched titles (after automatic matching with default 90% threshold):
     ```bash
-    python vrec_filter.py "input/psx_1g1r.dat" -u "[https://vsrecommendedgames.miraheze.org/wiki/PlayStation](https://vsrecommendedgames.miraheze.org/wiki/PlayStation)" -ir
+    python filter_script.py "input/psx_1g1r.dat" -u "[https://vsrecommendedgames.miraheze.org/wiki/PlayStation](https://vsrecommendedgames.miraheze.org/wiki/PlayStation)" -ir
     ```
 
 ## 9. Output Files
